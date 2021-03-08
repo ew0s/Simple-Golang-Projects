@@ -2,19 +2,95 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
-	"log"
+	"io"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 )
 
-type File struct {
-	name	string
-	size	int64
+type Node interface {
+	fmt.Stringer
 }
 
 type Folder struct {
-	name		string
+	name	string
+	child	[]Node
 }
+
+type File struct {
+	name 	string
+	size	int64
+}
+
+func (file File) String() string {
+	if file.size == 0 {
+		return file.name + " (empty)"
+	}
+	return file.name + " (" + strconv.FormatInt(file.size, 10) + "b)"
+}
+
+func (folder Folder) String() string {
+	return  folder.name
+}
+
+func readFolder(pathToFolder string, nodes []Node, printFiles bool) (error, []Node) {
+	file, err := os.Open(pathToFolder)
+	files, err := file.Readdir(0)
+	file.Close()
+
+	for _, file := range files {
+		if !(file.IsDir() || printFiles) {
+			continue
+		}
+
+		var newNode Node
+		if file.IsDir() {
+			 _, children := readFolder(filepath.Join(pathToFolder, file.Name()), []Node{}, printFiles)
+			newNode = Folder{ name:  file.Name(), child: children,
+			}
+		} else {
+			newNode = File{ file.Name(), file.Size() }
+		}
+
+		nodes = append(nodes, newNode)
+	}
+
+	return err, nodes
+}
+
+func printFolder(out io.Writer, nodes []Node, prefixes []string) {
+	if len(nodes) == 0 {
+		return
+	}
+
+	fmt.Fprintf(out, "%s", strings.Join(prefixes, ""))
+
+	node := nodes[0]
+
+	if len(nodes) == 1 {
+		fmt.Fprintf(out, "%s%s\n", "└───", node)
+		if folder, ok := node.(Folder); ok {
+			printFolder(out, folder.child, append(prefixes, "\t"))
+		}
+		return
+	}
+
+	fmt.Fprintf(out, "%s%s\n", "├───", node)
+	if folder, ok := node.(Folder); ok {
+		printFolder(out, folder.child, append(prefixes, "│\t"))
+	}
+
+	printFolder(out, nodes[1:], prefixes)
+}
+
+func dirTree(out io.Writer, path string, printFiles bool) error {
+	err, nodes := readFolder(path, []Node{}, printFiles)
+	printFolder(out, nodes, []string{})
+
+	return err
+}
+
 
 func main() {
 	out := os.Stdout
@@ -26,94 +102,5 @@ func main() {
 	err := dirTree(out, path, printFiles)
 	if err != nil {
 		panic(err.Error())
-	}
-}
-
-func dirTree(out *os.File, path string, printFiles bool) error {
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		panic("Unable to read path directory")
-	}
-
-	for _, file := range files {
-		newPath := path+string(os.PathSeparator)+file.Name()
-		_ = showTree(out, newPath, false, 0)
-	}
-
-	return nil
-}
-
-func showTree(out *os.File, path string, leaf bool, level int) error {
-
-	fileInfo, err := os.Lstat(path)
-	if err != nil {
-		log.Fatal("Unable to show file info")
-	}
-
-	if fileInfo.IsDir() {
-		folder := &Folder{name: fileInfo.Name()}
-		folder.drawComponent(level, leaf)
-	} else {
-		var file = &File{
-			name: fileInfo.Name(),
-			size: fileInfo.Size(),
-		}
-		file.drawComponent(level, leaf)
-	}
-
-	files, err := ioutil.ReadDir(path)
-	if err == nil {
-		if len(files) != 0 {
-			for index, file := range files {
-				leaf = false
-				if index == len(files) - 1 {
-					leaf = true
-				}
-				if file.IsDir() {
-					err := showTree(out, path+string(os.PathSeparator)+file.Name(), leaf, level + 1)
-					if err != nil {
-						panic(err.Error())
-					}
-				} else {
-					err := showTree(out, path+string(os.PathSeparator)+file.Name(), leaf, level + 1)
-					if err != nil {
-						panic(err.Error())
-					}
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (file *File) drawComponent(level int, Leaf bool) {
-	printTabs(level)
-	if Leaf {
-		fmt.Printf("%s", leaf)
-	} else {
-		fmt.Printf("%s", element)
-	}
-	fmt.Printf("%s (%db)\n", file.name, file.size)
-}
-
-func (folder *Folder) drawComponent(level int, Leaf bool) {
-	printTabs(level)
-	if Leaf {
-		fmt.Printf("%s", leaf)
-	} else {
-		fmt.Printf("%s", element)
-	}
-	fmt.Printf("%s\n", folder.name)
-}
-
-const (
-	leaf =		"└───"
-	element =	"├───"
-)
-
-func printTabs(level int) {
-	for i := 0; i < level; i++ {
-		fmt.Print("│\t")
 	}
 }
