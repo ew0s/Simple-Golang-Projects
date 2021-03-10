@@ -36,14 +36,17 @@ func (file File) String() string {
 	}
 }
 
-func readDirectory(path string, nodes []Node) ([]Node, error) {
+func readDirectory(path string, nodes []Node, printFiles bool) ([]Node, error) {
 	files, err := ioutil.ReadDir(path)
 
 	for _, file := range files {
+		if !(file.IsDir() || printFiles) {
+			continue
+		}
 		var node Node
 
 		if file.IsDir() {
-			children, _ := readDirectory(filepath.Join(path, file.Name()), []Node{})
+			children, _ := readDirectory(filepath.Join(path, file.Name()), []Node{}, printFiles)
 			node = Directory{
 				name: file.Name(),
 				children: children,
@@ -61,28 +64,34 @@ func readDirectory(path string, nodes []Node) ([]Node, error) {
 	return nodes, err
 }
 
-func printDirectory(out io.Writer, nodes []Node, prefixes []string, printFiles bool) {
+func printDirectory(out io.Writer, nodes []Node, prefixes []string) {
+
+	if len(nodes) == 0 {
+		return
+	}
 
 	fmt.Fprintf(out, "%s", strings.Join(prefixes, ""))
+	node := nodes[0]
+
 	if len(nodes) == 1 {
-		fmt.Fprintf(out, "└───")
-	} else {
-		fmt.Fprintf(out, "├───")
+		fmt.Fprintf(out, "%s%s\n", "└───", node)
+		if directory, ok := node.(Directory); ok {
+			printDirectory(out, directory.children, append(prefixes, "\t"))
+		}
+		return
 	}
 
-	for _, node := range nodes {
-		if openedNode, ok := node.(Directory); ok {
-			fmt.Fprintf(out, "%s\n", node)
-			prefixes = append(prefixes, "│\t")
-			printDirectory(out, openedNode.children, prefixes, printFiles)
-			prefixes = prefixes[1:]
-		}
+	fmt.Fprintf(out, "%s%s\n", "├───", node)
+	if directory, ok := node.(Directory); ok {
+		printDirectory(out, directory.children, append(prefixes, "│\t"))
 	}
+
+	printDirectory(out, nodes[1:], prefixes)
 }
 
 func dirTree(out io.Writer, path string, printFiles bool) error {
-	nodes, err := readDirectory(path, []Node{})
-	printDirectory(out, nodes, []string{}, printFiles)
+	nodes, err := readDirectory(path, []Node{}, printFiles)
+	printDirectory(out, nodes, []string{})
 	return err
 }
 
